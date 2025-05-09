@@ -78,10 +78,10 @@ const sensitiveEndpointsLimiter = rateLimit({
 
 
 //apply this sensitive endpoint rate limit to the registration endpoint
-app.use('/api/v1/auth/register', sensitiveEndpointsLimiter);
+app.use('/api/auth/register', sensitiveEndpointsLimiter);
 
 //routes use 
-app.use('/api/v1/auth', indentityRoutes);
+app.use('/api/auth', indentityRoutes);
 
 //use error handler middleware
 app.use(errorHandler);
