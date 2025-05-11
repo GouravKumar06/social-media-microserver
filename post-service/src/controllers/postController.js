@@ -3,6 +3,16 @@ const logger = require('../utils/logger');
 const Post = require('../models/post');
 
 
+async function invalidatePostCache(req, input) {
+    const cacheSingleKey = `post:${input}`;
+    await req.redisClient.del(cacheSingleKey);
+    const keys = await req.redisClient.keys(`posts:*`);
+    if(keys.length > 0) {
+        await req.redisClient.del(keys);
+    }
+}
+
+
 //create post
 exports.createPost = async (req, res) => {
     logger.info('create post endpoint.......');
@@ -25,6 +35,8 @@ exports.createPost = async (req, res) => {
 
         await post.save();
 
+        await invalidatePostCache(req, post._id.toString());
+
         logger.info('post created successfully', post._id);
 
         res.status(201).json({
@@ -46,12 +58,47 @@ exports.createPost = async (req, res) => {
 exports.getAllPosts = async (req, res) => {
     logger.info('get all posts endpoint.......');
     try {
-        const posts = await Post.find().populate('user', 'username');
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const cacheKey = `posts:${page}:${limit}`;
+        const cachedPosts = await req.redisClient.get(cacheKey);
+
+        if(cachedPosts) {
+            return res.status(200).json({
+                success: true,
+                message: 'Posts retrieved successfully from cache',
+                posts: JSON.parse(cachedPosts)
+            });
+        }
+
+
+
+
+        const totalPosts = await Post.countDocuments();
+        const totalPages = Math.ceil(totalPosts / limit);
+        
+        const posts = await Post.find().sort({ createdAt: -1 }).skip(skip).limit(limit);
+
+        const result = {
+            totalPosts,
+            totalPages,
+            currentPage: page,
+            posts
+        }
+
+        //save your posts in redis cache
+        await req.redisClient.setex(
+          cacheKey,
+          300,
+          JSON.stringify(result),
+        ); 
 
         res.status(200).json({
             success: true,
             message: 'Posts retrieved successfully',
-            posts
+            result
         });
 
     } catch (error) {
@@ -87,12 +134,12 @@ exports.updatePost = async (req, res) => {
             });
         }
 
-        if (post.user.toString() !== req.user._id.toString()) {
-            logger.warn('user not authorized to update this post');
-            return res.status(401).json({
-                success: false,
-                message: 'User not authorized to update this post'
-            });
+        if (post.user.toString() !== req.user.userId.toString()) {
+          logger.warn("user not authorized to update this post");
+          return res.status(401).json({
+            success: false,
+            message: "User not authorized to update this post",
+          });
         }
 
         post.title = title;
@@ -119,7 +166,19 @@ exports.updatePost = async (req, res) => {
 exports.getSinglePost = async (req, res) => {
     logger.info('get single post endpoint.......');
     try {
-        const post = await Post.findById(req.params.id).populate('user', 'username');
+        const postId = req.params.id;
+        const cacheKey = `post:${postId}`;
+        const cachedPost = await req.redisClient.get(cacheKey);
+        if(cachedPost) {
+            return res.status(200).json({
+                success: true,
+                message: 'Post retrieved successfully from cache',
+                post: JSON.parse(cachedPost)
+            });
+        }
+
+
+        const post = await Post.findById(req.params.id);
 
         if (!post) {
             logger.warn('post not found');
@@ -128,6 +187,13 @@ exports.getSinglePost = async (req, res) => {
                 message: 'Post not found'
             });
         }
+
+        //save your post in redis cache
+        await req.redisClient.setex(
+          cacheKey,
+          3600,
+          JSON.stringify(post),
+        );
 
         res.status(200).json({
             success: true,
@@ -149,7 +215,10 @@ exports.getSinglePost = async (req, res) => {
 exports.deletePost = async (req, res) => {
     logger.info('delete post endpoint.......');
     try {
-        const post = await Post.findById(req.params.id);
+        const post = await Post.findOneAndDelete({
+            _id: req.params.id,
+            user: req.user.userId
+        });
 
         if (!post) {
             logger.warn('post not found');
@@ -159,16 +228,19 @@ exports.deletePost = async (req, res) => {
             });
         }
 
-        if (post.user.toString() !== req.user._id.toString()) {
-            logger.warn('user not authorized to delete this post');
-            return res.status(401).json({
-                success: false,
-                message: 'User not authorized to delete this post'
-            });
+        logger.warn(`post : ${post.user.toString()}`);
+        logger.warn(`user : ${req.user.userId.toString()}`);
+
+        if (post.user.toString() !== req.user.userId.toString()) {
+          logger.warn("user not authorized to delete this post");
+          return res.status(401).json({
+            success: false,
+            message: "User not authorized to delete this post",
+          });
         }
 
-        await post.remove();
-
+        await invalidatePostCache(req, req.params.id);
+        logger.info('post deleted successfully', post._id);
         res.status(200).json({
             success: true,
             message: 'Post deleted successfully'
