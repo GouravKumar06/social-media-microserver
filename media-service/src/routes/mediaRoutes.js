@@ -2,6 +2,7 @@
 
 const express = require('express');
 const multer = require('multer');
+const {uploadMedia} = require('../controllers/mediaController');
 const isAuthenticated = require('../middleware/authMiddleware');
 const logger = require('../utils/logger');
 const router = express.Router();
@@ -15,7 +16,7 @@ const upload = multer({
 }).single('file');
 
 // Middleware to handle file upload
-const uploadMedia = (req, res, next) => {
+const uploadFile = (req, res, next) => {
     upload(req, res, (err) => {
         if (err instanceof multer.MulterError) {
             logger.error(`Multer error: ${err.message}`);
@@ -44,6 +45,6 @@ const uploadMedia = (req, res, next) => {
     });
 };
 
-router.post('/upload',isAuthenticated,uploadMedia,uploadMedia)
+router.post("/upload", isAuthenticated, uploadFile, uploadMedia);
 
 module.exports = router
