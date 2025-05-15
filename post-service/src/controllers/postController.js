@@ -1,6 +1,7 @@
 
 const logger = require('../utils/logger');
 const Post = require('../models/post');
+const { publishEvent } = require('../utils/rabbitmq');
 
 
 async function invalidatePostCache(req, input) {
@@ -238,6 +239,14 @@ exports.deletePost = async (req, res) => {
             message: "User not authorized to delete this post",
           });
         }
+
+
+        //publish post delete method to rabbitmq
+        await publishEvent("post.deleted", {
+          postId: post._id.toString(),
+          userId: req.user.userId,
+          mediaIds: post.mediaIds,
+        });
 
         await invalidatePostCache(req, req.params.id);
         logger.info('post deleted successfully', post._id);

@@ -49,3 +49,33 @@ exports.uploadMedia = async(req,res) => {
         })
     }
 }
+
+
+exports.getAllMedias = async(req,res) => {
+    logger.info("getting all media")
+    try{
+        // const userId = req.user.userId
+        // const medias = await Media.find({userId}).sort({createdAt: -1})
+        const medias = await Media.find().sort({createdAt: -1})
+
+        if(!medias || medias.length === 0){
+            logger.error("No media found")
+            return res.status(404).json({
+                success: false,
+                message: "No media found",
+            })
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: "All media fetched successfully",
+            medias,
+        })
+    }catch(error){
+        logger.error(`Error fetching all media: ${error.message}`)
+        res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        })
+    }
+}

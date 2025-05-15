@@ -12,6 +12,8 @@ const logger = require('./utils/logger');
 const errorHandler = require('./middleware/errorHandler');
 const mediaRoutes = require('./routes/mediaRoutes');
 const connectDB = require('./config/db');
+const { connectRabbitMQ, consumeEvent } = require('./utils/rabbitmq');
+const { handlePostDeleted } = require('./eventHandlers/mediaHandler');
 
 //connect to database
 connectDB();
@@ -69,9 +71,24 @@ app.use('/api/media',(req,res,next)=>{
 }, mediaRoutes);
 
 
-app.listen(PORT, () => {
-    logger.info(`Media service is running on port ${PORT}`);
-});
+async function startServer() {
+    try {
+        //connect to rabbitMQ
+        await connectRabbitMQ();
+
+        //consume event from rabbitMQ
+        await consumeEvent('post.deleted',handlePostDeleted);
+
+
+        app.listen(PORT);
+        logger.info(`Media service is running on port ${PORT}`);
+    } catch (error) {
+        logger.error(`Error starting server: ${error.message}`);
+        process.exit(1);
+    }
+}
+
+startServer();
 
 
 process.on('unhandledRejection', (err,promise) => {
